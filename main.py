@@ -45,7 +45,7 @@ menu = ReplyKeyboardMarkup(
 )
 
 # =====================
-# ВПРАВИ (20+)
+# ВПРАВИ
 # =====================
 exercise_kb = ReplyKeyboardMarkup(
     keyboard=[
@@ -87,7 +87,6 @@ async def add_start(message: types.Message, state: FSMContext):
     await message.answer("Обери вправу:", reply_markup=exercise_kb)
     await state.set_state(AddWorkout.exercise)
 
-# якщо вибрав "Інша"
 @dp.message(AddWorkout.exercise)
 async def get_exercise(message: types.Message, state: FSMContext):
     if message.text == "Інша":
@@ -98,21 +97,18 @@ async def get_exercise(message: types.Message, state: FSMContext):
         await message.answer("Введи вагу (кг):")
         await state.set_state(AddWorkout.weight)
 
-# власна вправа
 @dp.message(AddWorkout.custom_exercise)
 async def custom_exercise(message: types.Message, state: FSMContext):
     await state.update_data(exercise=message.text)
     await message.answer("Введи вагу (кг):")
     await state.set_state(AddWorkout.weight)
 
-# вага
 @dp.message(AddWorkout.weight)
 async def get_weight(message: types.Message, state: FSMContext):
     await state.update_data(weight=float(message.text))
     await message.answer("Введи повторення:")
     await state.set_state(AddWorkout.reps)
 
-# повторення
 @dp.message(AddWorkout.reps)
 async def get_reps(message: types.Message, state: FSMContext):
     data = await state.get_data()
@@ -133,31 +129,44 @@ async def get_reps(message: types.Message, state: FSMContext):
     await state.clear()
 
 # =====================
-# ПРОГРЕС
+# ПРОГРЕС (ПО ДНЯХ)
 # =====================
 @dp.message(lambda m: m.text == "📊 Прогрес")
 async def progress(message: types.Message):
-    cursor.execute("SELECT exercise, weight, reps FROM workouts WHERE user_id=?", (message.from_user.id,))
+    cursor.execute("""
+    SELECT date, exercise, weight, reps 
+    FROM workouts 
+    WHERE user_id=? 
+    ORDER BY date DESC
+    """, (message.from_user.id,))
+
     rows = cursor.fetchall()
 
     if not rows:
         await message.answer("❌ Даних немає")
         return
 
-    text = "📊 Тренування:\n\n"
-    for r in rows:
-        text += f"{r[0]} | {r[1]} кг | {r[2]}\n"
+    text = "📊 Тренування по днях:\n\n"
+    current_date = None
+
+    for date, ex, w, r in rows:
+        if date != current_date:
+            current_date = date
+            text += f"\n📅 {date}:\n"
+
+        text += f"  {ex} | {w} кг | {r}\n"
 
     await message.answer(text)
 
 # =====================
-# АНАЛІЗ
+# АНАЛІЗ (МІЖ ДНЯМИ)
 # =====================
 @dp.message(lambda m: m.text == "📈 Аналіз")
 async def analysis(message: types.Message):
     cursor.execute("""
-    SELECT exercise, weight FROM workouts
-    WHERE user_id=?
+    SELECT date, exercise, weight 
+    FROM workouts 
+    WHERE user_id=? 
     ORDER BY date
     """, (message.from_user.id,))
 
@@ -167,24 +176,33 @@ async def analysis(message: types.Message):
         await message.answer("❌ Мало даних")
         return
 
-    result = {}
-    for ex, w in rows:
-        result.setdefault(ex, []).append(w)
+    # групування по днях
+    days = {}
+    for date, ex, w in rows:
+        days.setdefault(date, {})
+        days[date][ex] = w
 
-    text = "📈 Аналіз:\n\n"
+    dates = list(days.keys())
 
-    for ex, data in result.items():
-        if len(data) < 2:
-            continue
+    if len(dates) < 2:
+        await message.answer("❌ Потрібно мінімум 2 дні тренувань")
+        return
 
-        diff = data[-1] - data[-2]
+    last_day = days[dates[-1]]
+    prev_day = days[dates[-2]]
 
-        if diff > 0:
-            text += f"{ex}: +{diff} кг 🔥\n"
-        elif diff < 0:
-            text += f"{ex}: {diff} кг 📉\n"
-        else:
-            text += f"{ex}: без змін\n"
+    text = f"📈 Прогрес ({dates[-2]} → {dates[-1]}):\n\n"
+
+    for ex in last_day:
+        if ex in prev_day:
+            diff = last_day[ex] - prev_day[ex]
+
+            if diff > 0:
+                text += f"{ex}: +{diff} кг 🔥\n"
+            elif diff < 0:
+                text += f"{ex}: {diff} кг 📉\n"
+            else:
+                text += f"{ex}: без змін\n"
 
     await message.answer(text)
 
