@@ -146,7 +146,7 @@ async def progress(message: types.Message):
         await message.answer("❌ Даних немає")
         return
 
-    text = "📊 Тренування по днях:\n\n"
+    text = "📊 Тренування :\n\n"
     current_date = None
 
     for date, ex, w, r in rows:
