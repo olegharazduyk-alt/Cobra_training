@@ -1,6 +1,8 @@
 import asyncio
-import sqlite3
+import os
+import psycopg2
 from datetime import datetime
+import pytz
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
@@ -14,20 +16,21 @@ TOKEN = "8716094605:AAFdtjf9xnlkniV1Cx5ikgFO6OCFevZ1nck"
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-conn = sqlite3.connect("fitness.db")
+# =====================
+# БАЗА PostgreSQL
+# =====================
+conn = psycopg2.connect(os.environ["DATABASE_URL"])
 cursor = conn.cursor()
 
-# =====================
-# БАЗА
-# =====================
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS workouts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT,
     exercise TEXT,
     weight REAL,
     reps INTEGER,
-    date TEXT
+    date TEXT,
+    created_at TIMESTAMP
 )
 """)
 conn.commit()
@@ -113,30 +116,63 @@ async def get_weight(message: types.Message, state: FSMContext):
 async def get_reps(message: types.Message, state: FSMContext):
     data = await state.get_data()
 
+    # час Київ
+    kyiv = pytz.timezone("Europe/Kyiv")
+    now = datetime.now(kyiv)
+    date = now.strftime("%Y-%m-%d")
+
+    # запис у БД
     cursor.execute("""
-    INSERT INTO workouts (user_id, exercise, weight, reps, date)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO workouts (user_id, exercise, weight, reps, date, created_at)
+    VALUES (%s, %s, %s, %s, %s, %s)
     """, (
         message.from_user.id,
         data["exercise"],
         data["weight"],
         int(message.text),
-        datetime.now().strftime("%Y-%m-%d")
+        date,
+        now
     ))
     conn.commit()
+
+    # =====================
+    # ПЕРЕВІРКА ВІДПОЧИНКУ
+    # =====================
+    cursor.execute("""
+    SELECT created_at 
+    FROM workouts 
+    WHERE user_id=%s 
+    ORDER BY created_at DESC 
+    LIMIT 2
+    """, (message.from_user.id,))
+
+    times = cursor.fetchall()
+
+    if len(times) == 2:
+        last_time = times[0][0]
+        prev_time = times[1][0]
+
+        diff_seconds = (last_time - prev_time).total_seconds()
+
+        if diff_seconds < 60:
+            await message.answer("⚠️ Менше 1 хв — відпочинь 1-2 хв 🛌")
+        elif diff_seconds < 120:
+            await message.answer("👍 Норм, але краще 1-2 хв відпочинку")
+        else:
+            await message.answer("💪 Хороший відпочинок")
 
     await message.answer("✅ Додано", reply_markup=menu)
     await state.clear()
 
 # =====================
-# ПРОГРЕС (ПО ДНЯХ)
+# ПРОГРЕС
 # =====================
 @dp.message(lambda m: m.text == "📊 Прогрес")
 async def progress(message: types.Message):
     cursor.execute("""
     SELECT date, exercise, weight, reps 
     FROM workouts 
-    WHERE user_id=? 
+    WHERE user_id=%s 
     ORDER BY date DESC
     """, (message.from_user.id,))
 
@@ -146,7 +182,7 @@ async def progress(message: types.Message):
         await message.answer("❌ Даних немає")
         return
 
-    text = "📊 Тренування :\n\n"
+    text = "📊 Тренування по днях:\n\n"
     current_date = None
 
     for date, ex, w, r in rows:
@@ -159,14 +195,14 @@ async def progress(message: types.Message):
     await message.answer(text)
 
 # =====================
-# АНАЛІЗ (МІЖ ДНЯМИ)
+# АНАЛІЗ
 # =====================
 @dp.message(lambda m: m.text == "📈 Аналіз")
 async def analysis(message: types.Message):
     cursor.execute("""
     SELECT date, exercise, weight 
     FROM workouts 
-    WHERE user_id=? 
+    WHERE user_id=%s 
     ORDER BY date
     """, (message.from_user.id,))
 
@@ -176,7 +212,6 @@ async def analysis(message: types.Message):
         await message.answer("❌ Мало даних")
         return
 
-    # групування по днях
     days = {}
     for date, ex, w in rows:
         days.setdefault(date, {})
@@ -185,7 +220,7 @@ async def analysis(message: types.Message):
     dates = list(days.keys())
 
     if len(dates) < 2:
-        await message.answer("❌ Потрібно мінімум 2 дні тренувань")
+        await message.answer("❌ Потрібно мінімум 2 дні")
         return
 
     last_day = days[dates[-1]]
@@ -205,39 +240,6 @@ async def analysis(message: types.Message):
                 text += f"{ex}: без змін\n"
 
     await message.answer(text)
-
-# =====================
-# РАЦІОН
-# =====================
-@dp.message(lambda m: m.text == "🥗 Раціон")
-async def diet(message: types.Message):
-    await message.answer("Введи: вага режим\nНаприклад: 70 маса")
-
-@dp.message(lambda m: "маса" in m.text or "сушка" in m.text)
-async def calc_diet(message: types.Message):
-    try:
-        parts = message.text.split()
-        weight = float(parts[0])
-        mode = parts[1]
-
-        calories = weight * 30
-        if mode == "маса":
-            calories += 400
-        else:
-            calories -= 400
-
-        protein = weight * 2
-        fat = weight * 1
-        carbs = (calories - (protein*4 + fat*9)) / 4
-
-        await message.answer(
-            f"🔥 Калорії: {int(calories)}\n"
-            f"🥩 Білки: {int(protein)} г\n"
-            f"🥑 Жири: {int(fat)} г\n"
-            f"🍚 Вуглеводи: {int(carbs)} г"
-        )
-    except:
-        await message.answer("Формат: 70 маса")
 
 # =====================
 # ЗАПУСК
