@@ -331,12 +331,15 @@ async def analysis(message: types.Message):
 # =====================
 # РАЦІОН
 # =====================
+from aiogram.fsm.context import FSMContext
 @dp.message(lambda m: m.text == "🥗 Раціон")
-async def diet(message: types.Message):
+async def diet(message: types.Message, state: FSMContext):
+    await state.clear()  # 🔥 ВИХІД З БУДЬ-ЯКОГО СТАНУ
     await message.answer("Введи: 70 маса або 70 сушка")
 
+
 @dp.message(lambda m: len(m.text.split()) == 2)
-async def calc_diet(message: types.Message):
+async def calc_diet(message: types.Message, state: FSMContext):
     try:
         parts = message.text.lower().split()
         weight = float(parts[0])
@@ -344,6 +347,9 @@ async def calc_diet(message: types.Message):
 
         if mode not in ["маса", "сушка"]:
             return
+
+        # 🔥 теж на всякий випадок очищаємо стан
+        await state.clear()
 
         calories = weight * 30 + (400 if mode == "маса" else -400)
         protein = weight * 2
@@ -356,6 +362,7 @@ async def calc_diet(message: types.Message):
             f"🥑 Жири: {int(fat)} г\n"
             f"🍚 Вуглеводи: {int(carbs)} г"
         )
+
     except:
         await message.answer("❌ Формат: 70 маса")
 
