@@ -16,20 +16,35 @@ TOKEN = "8716094605:AAFdtjf9xnlkniV1Cx5ikgFO6OCFevZ1nck"
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# =====================
-# БАЗА PostgreSQL
-# =====================
 conn = psycopg2.connect(os.environ["DATABASE_URL"])
 cursor = conn.cursor()
 
+# =====================
+# БАЗА
+# =====================
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS workouts (
     id SERIAL PRIMARY KEY,
     user_id BIGINT,
-    exercise TEXT,
+    date TEXT
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS exercises_log (
+    id SERIAL PRIMARY KEY,
+    workout_id INTEGER,
+    name TEXT,
+    category TEXT
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS sets (
+    id SERIAL PRIMARY KEY,
+    exercise_id INTEGER,
     weight REAL,
     reps INTEGER,
-    date TEXT,
     created_at TIMESTAMP
 )
 """)
@@ -40,40 +55,56 @@ conn.commit()
 # =====================
 menu = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="🏋️ Додати тренування")],
-        [KeyboardButton(text="📊 Прогрес"), KeyboardButton(text="📈 Аналіз")],
-        [KeyboardButton(text="🥗 Раціон")]
+        [KeyboardButton(text="🏋️ Почати тренування")],
+        [KeyboardButton(text="📊 Прогрес"), KeyboardButton(text="🥗 Раціон")]
     ],
     resize_keyboard=True
 )
 
-# =====================
-# ВПРАВИ
-# =====================
-exercise_kb = ReplyKeyboardMarkup(
+category_kb = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="Жим лежачи"), KeyboardButton(text="Присід")],
-        [KeyboardButton(text="Станова тяга"), KeyboardButton(text="Підтягування")],
-        [KeyboardButton(text="Жим гантелей"), KeyboardButton(text="Біцепс")],
-        [KeyboardButton(text="Трицепс"), KeyboardButton(text="Плечі")],
-        [KeyboardButton(text="Жим ногами"), KeyboardButton(text="Розводка")],
-        [KeyboardButton(text="Тяга верхнього блока"), KeyboardButton(text="Тяга нижнього блока")],
-        [KeyboardButton(text="Французький жим"), KeyboardButton(text="Молотки")],
-        [KeyboardButton(text="Планка"), KeyboardButton(text="Скручування")],
-        [KeyboardButton(text="Віджимання"), KeyboardButton(text="Бруси")],
-        [KeyboardButton(text="Інша")]
+        [KeyboardButton(text="Ноги"), KeyboardButton(text="Руки")],
+        [KeyboardButton(text="Груди"), KeyboardButton(text="Спина")],
+        [KeyboardButton(text="Плечі")]
     ],
     resize_keyboard=True
 )
+
+sets_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="➕ Ще підхід")],
+        [KeyboardButton(text="✅ Завершити вправу")]
+    ],
+    resize_keyboard=True
+)
+
+next_exercise_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="➕ Додати вправу")],
+        [KeyboardButton(text="🏁 Завершити тренування")]
+    ],
+    resize_keyboard=True
+)
+
+exercises = {
+    "Ноги": ["Присід", "Жим ногами"],
+    "Руки": ["Біцепс", "Трицепс"],
+    "Груди": ["Жим лежачи", "Віджимання"],
+    "Спина": ["Станова тяга", "Підтягування"],
+    "Плечі": ["Жим плечима"]
+}
 
 # =====================
 # FSM
 # =====================
-class AddWorkout(StatesGroup):
+class Workout(StatesGroup):
+    category = State()
     exercise = State()
-    custom_exercise = State()
+    custom = State()
     weight = State()
     reps = State()
+    next_set = State()
+    next_ex = State()
 
 # =====================
 # START
@@ -83,86 +114,166 @@ async def start(message: types.Message):
     await message.answer("Привіт 💪", reply_markup=menu)
 
 # =====================
-# ДОДАТИ
+# СТАРТ ТРЕНУВАННЯ
 # =====================
-@dp.message(lambda m: m.text == "🏋️ Додати тренування")
-async def add_start(message: types.Message, state: FSMContext):
-    await message.answer("Обери вправу:", reply_markup=exercise_kb)
-    await state.set_state(AddWorkout.exercise)
-
-@dp.message(AddWorkout.exercise)
-async def get_exercise(message: types.Message, state: FSMContext):
-    if message.text == "Інша":
-        await message.answer("Введи назву вправи:")
-        await state.set_state(AddWorkout.custom_exercise)
-    else:
-        await state.update_data(exercise=message.text)
-        await message.answer("Введи вагу (кг):")
-        await state.set_state(AddWorkout.weight)
-
-@dp.message(AddWorkout.custom_exercise)
-async def custom_exercise(message: types.Message, state: FSMContext):
-    await state.update_data(exercise=message.text)
-    await message.answer("Введи вагу (кг):")
-    await state.set_state(AddWorkout.weight)
-
-@dp.message(AddWorkout.weight)
-async def get_weight(message: types.Message, state: FSMContext):
-    await state.update_data(weight=float(message.text))
-    await message.answer("Введи повторення:")
-    await state.set_state(AddWorkout.reps)
-
-@dp.message(AddWorkout.reps)
-async def get_reps(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-
-    # час Київ
+@dp.message(lambda m: m.text == "🏋️ Почати тренування")
+async def start_workout(message: types.Message, state: FSMContext):
     kyiv = pytz.timezone("Europe/Kyiv")
-    now = datetime.now(kyiv)
-    date = now.strftime("%Y-%m-%d")
+    date = datetime.now(kyiv).strftime("%Y-%m-%d")
 
-    # запис у БД
-    cursor.execute("""
-    INSERT INTO workouts (user_id, exercise, weight, reps, date, created_at)
-    VALUES (%s, %s, %s, %s, %s, %s)
-    """, (
-        message.from_user.id,
-        data["exercise"],
-        data["weight"],
-        int(message.text),
-        date,
-        now
-    ))
+    cursor.execute(
+        "INSERT INTO workouts (user_id, date) VALUES (%s, %s) RETURNING id",
+        (message.from_user.id, date)
+    )
+    workout_id = cursor.fetchone()[0]
     conn.commit()
 
-    # =====================
-    # ПЕРЕВІРКА ВІДПОЧИНКУ
-    # =====================
+    await state.update_data(workout_id=workout_id)
+    await message.answer("Обери групу м'язів:", reply_markup=category_kb)
+    await state.set_state(Workout.category)
+
+# =====================
+# КАТЕГОРІЯ
+# =====================
+@dp.message(Workout.category)
+async def choose_category(message: types.Message, state: FSMContext):
+    category = message.text
+    await state.update_data(category=category)
+
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=x)] for x in exercises.get(category, [])] + [[KeyboardButton(text="Інша")]],
+        resize_keyboard=True
+    )
+
+    await message.answer("Обери вправу:", reply_markup=kb)
+    await state.set_state(Workout.exercise)
+
+# =====================
+# ВПРАВА
+# =====================
+@dp.message(Workout.exercise)
+async def choose_exercise(message: types.Message, state: FSMContext):
+    if message.text == "Інша":
+        await message.answer("Введи свою вправу:")
+        await state.set_state(Workout.custom)
+    else:
+        await state.update_data(exercise=message.text)
+        await create_exercise(message, state)
+
+@dp.message(Workout.custom)
+async def custom_ex(message: types.Message, state: FSMContext):
+    await state.update_data(exercise=message.text)
+    await create_exercise(message, state)
+
+async def create_exercise(message, state):
+    data = await state.get_data()
+
     cursor.execute("""
-    SELECT created_at 
-    FROM workouts 
-    WHERE user_id=%s 
-    ORDER BY created_at DESC 
-    LIMIT 2
-    """, (message.from_user.id,))
+    INSERT INTO exercises_log (workout_id, name, category)
+    VALUES (%s, %s, %s) RETURNING id
+    """, (data["workout_id"], data["exercise"], data["category"]))
+
+    ex_id = cursor.fetchone()[0]
+    conn.commit()
+
+    await state.update_data(exercise_id=ex_id)
+
+    await message.answer("Введи вагу:")
+    await state.set_state(Workout.weight)
+
+# =====================
+# SETS + РОЗУМНА ЛОГІКА
+# =====================
+@dp.message(Workout.weight)
+async def weight(message: types.Message, state: FSMContext):
+    await state.update_data(weight=float(message.text))
+    await message.answer("Введи повторення:")
+    await state.set_state(Workout.reps)
+
+@dp.message(Workout.reps)
+async def reps(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+
+    kyiv = pytz.timezone("Europe/Kyiv")
+    now = datetime.now(kyiv)
+
+    weight = data["weight"]
+    reps_val = int(message.text)
+
+    # запис сету
+    cursor.execute("""
+    INSERT INTO sets (exercise_id, weight, reps, created_at)
+    VALUES (%s, %s, %s, %s)
+    """, (data["exercise_id"], weight, reps_val, now))
+    conn.commit()
+
+    # ===== PR (максимум по вправі) =====
+    cursor.execute("""
+    SELECT MAX(weight) FROM sets
+    WHERE exercise_id=%s
+    """, (data["exercise_id"],))
+    max_weight = cursor.fetchone()[0]
+
+    text = ""
+
+    if weight == max_weight:
+        text += "🏆 Новий максимум!\n"
+
+    # ===== РЕКОМЕНДАЦІЇ =====
+    if reps_val >= 10:
+        text += "📈 Можеш збільшити вагу на 2.5–5 кг\n"
+    elif reps_val <= 5:
+        text += "⚠️ Вже важко — залиш або зменш вагу\n"
+    else:
+        text += "👍 Хороший робочий діапазон\n"
+
+    # ===== ВІДПОЧИНОК =====
+    cursor.execute("""
+    SELECT created_at FROM sets
+    WHERE exercise_id=%s
+    ORDER BY created_at DESC LIMIT 2
+    """, (data["exercise_id"],))
 
     times = cursor.fetchall()
 
     if len(times) == 2:
-        last_time = times[0][0]
-        prev_time = times[1][0]
+        diff = (times[0][0] - times[1][0]).total_seconds()
 
-        diff_seconds = (last_time - prev_time).total_seconds()
-
-        if diff_seconds < 60:
-            await message.answer("⚠️ Менше 1 хв — відпочинь 1-2 хв 🛌")
-        elif diff_seconds < 120:
-            await message.answer("👍 Норм, але краще 1-2 хв відпочинку")
+        if diff < 60:
+            text += "⚠️ Відпочинок < 1 хв\n"
+        elif diff < 120:
+            text += "👍 Норм відпочинок\n"
         else:
-            await message.answer("💪 Хороший відпочинок")
+            text += "💪 Хороший відпочинок\n"
 
-    await message.answer("✅ Додано", reply_markup=menu)
-    await state.clear()
+    await message.answer(text)
+
+    await message.answer("Ще підхід?", reply_markup=sets_kb)
+    await state.set_state(Workout.next_set)
+
+# =====================
+# ДАЛІ СЕТИ
+# =====================
+@dp.message(Workout.next_set)
+async def next_set(message: types.Message, state: FSMContext):
+    if message.text == "➕ Ще підхід":
+        await message.answer("Введи вагу:")
+        await state.set_state(Workout.weight)
+    else:
+        await message.answer("Додати ще вправу?", reply_markup=next_exercise_kb)
+        await state.set_state(Workout.next_ex)
+
+# =====================
+# НАСТУПНА ВПРАВА
+# =====================
+@dp.message(Workout.next_ex)
+async def next_ex(message: types.Message, state: FSMContext):
+    if message.text == "➕ Додати вправу":
+        await message.answer("Обери групу:", reply_markup=category_kb)
+        await state.set_state(Workout.category)
+    else:
+        await message.answer("🏁 Тренування завершено", reply_markup=menu)
+        await state.clear()
 
 # =====================
 # ПРОГРЕС
@@ -170,76 +281,29 @@ async def get_reps(message: types.Message, state: FSMContext):
 @dp.message(lambda m: m.text == "📊 Прогрес")
 async def progress(message: types.Message):
     cursor.execute("""
-    SELECT date, exercise, weight, reps 
-    FROM workouts 
-    WHERE user_id=%s 
-    ORDER BY date DESC
+    SELECT e.name, s.weight, s.reps
+    FROM sets s
+    JOIN exercises_log e ON s.exercise_id = e.id
+    JOIN workouts w ON e.workout_id = w.id
+    WHERE w.user_id=%s
+    ORDER BY s.created_at DESC
+    LIMIT 10
     """, (message.from_user.id,))
 
     rows = cursor.fetchall()
 
-    if not rows:
-        await message.answer("❌ Даних немає")
-        return
-
-    text = "📊 Тренування по днях:\n\n"
-    current_date = None
-
-    for date, ex, w, r in rows:
-        if date != current_date:
-            current_date = date
-            text += f"\n📅 {date}:\n"
-
-        text += f"  {ex} | {w} кг | {r}\n"
+    text = "📊 Останні підходи:\n\n"
+    for r in rows:
+        text += f"{r[0]} | {r[1]} кг | {r[2]}\n"
 
     await message.answer(text)
 
 # =====================
-# АНАЛІЗ
+# РАЦІОН
 # =====================
-@dp.message(lambda m: m.text == "📈 Аналіз")
-async def analysis(message: types.Message):
-    cursor.execute("""
-    SELECT date, exercise, weight 
-    FROM workouts 
-    WHERE user_id=%s 
-    ORDER BY date
-    """, (message.from_user.id,))
-
-    rows = cursor.fetchall()
-
-    if len(rows) < 2:
-        await message.answer("❌ Мало даних")
-        return
-
-    days = {}
-    for date, ex, w in rows:
-        days.setdefault(date, {})
-        days[date][ex] = w
-
-    dates = list(days.keys())
-
-    if len(dates) < 2:
-        await message.answer("❌ Потрібно мінімум 2 дні")
-        return
-
-    last_day = days[dates[-1]]
-    prev_day = days[dates[-2]]
-
-    text = f"📈 Прогрес ({dates[-2]} → {dates[-1]}):\n\n"
-
-    for ex in last_day:
-        if ex in prev_day:
-            diff = last_day[ex] - prev_day[ex]
-
-            if diff > 0:
-                text += f"{ex}: +{diff} кг 🔥\n"
-            elif diff < 0:
-                text += f"{ex}: {diff} кг 📉\n"
-            else:
-                text += f"{ex}: без змін\n"
-
-    await message.answer(text)
+@dp.message(lambda m: m.text == "🥗 Раціон")
+async def diet(message: types.Message):
+    await message.answer("Введи: 70 маса або 70 сушка")
 
 # =====================
 # ЗАПУСК
