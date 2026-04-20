@@ -56,7 +56,8 @@ conn.commit()
 menu = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🏋️ Почати тренування")],
-        [KeyboardButton(text="📊 Прогрес"), KeyboardButton(text="🥗 Раціон")]
+        [KeyboardButton(text="📊 Прогрес"), KeyboardButton(text="📈 Аналіз")],
+        [KeyboardButton(text="🥗 Раціон")]
     ],
     resize_keyboard=True
 )
@@ -182,7 +183,7 @@ async def create_exercise(message, state):
     await state.set_state(Workout.weight)
 
 # =====================
-# SETS + РОЗУМНА ЛОГІКА
+# SETS + ЛОГІКА
 # =====================
 @dp.message(Workout.weight)
 async def weight(message: types.Message, state: FSMContext):
@@ -207,11 +208,8 @@ async def reps(message: types.Message, state: FSMContext):
     """, (data["exercise_id"], weight, reps_val, now))
     conn.commit()
 
-    # ===== PR (максимум по вправі) =====
-    cursor.execute("""
-    SELECT MAX(weight) FROM sets
-    WHERE exercise_id=%s
-    """, (data["exercise_id"],))
+    # PR
+    cursor.execute("SELECT MAX(weight) FROM sets WHERE exercise_id=%s", (data["exercise_id"],))
     max_weight = cursor.fetchone()[0]
 
     text = ""
@@ -219,15 +217,15 @@ async def reps(message: types.Message, state: FSMContext):
     if weight == max_weight:
         text += "🏆 Новий максимум!\n"
 
-    # ===== РЕКОМЕНДАЦІЇ =====
-    if reps_val >= 10:
-        text += "📈 Можеш збільшити вагу на 2.5–5 кг\n"
+    # рекомендації
+    if reps_val >= 16:
+        text += "📈 Збільш вагу (+2.5–5 кг)\n"
     elif reps_val <= 5:
-        text += "⚠️ Вже важко — залиш або зменш вагу\n"
+        text += "⚠️ Вже важко\n"
     else:
-        text += "👍 Хороший робочий діапазон\n"
+        text += "👍 Добре\n"
 
-    # ===== ВІДПОЧИНОК =====
+    # відпочинок
     cursor.execute("""
     SELECT created_at FROM sets
     WHERE exercise_id=%s
@@ -240,11 +238,11 @@ async def reps(message: types.Message, state: FSMContext):
         diff = (times[0][0] - times[1][0]).total_seconds()
 
         if diff < 60:
-            text += "⚠️ Відпочинок < 1 хв\n"
+            text += "⚠️ <1 хв відпочинку\n"
         elif diff < 120:
-            text += "👍 Норм відпочинок\n"
+            text += "👍 норм відпочинок\n"
         else:
-            text += "💪 Хороший відпочинок\n"
+            text += "💪 добре\n"
 
     await message.answer(text)
 
@@ -299,11 +297,67 @@ async def progress(message: types.Message):
     await message.answer(text)
 
 # =====================
+# АНАЛІЗ
+# =====================
+@dp.message(lambda m: m.text == "📈 Аналіз")
+async def analysis(message: types.Message):
+    cursor.execute("""
+    SELECT e.name, MAX(s.weight), AVG(s.weight), COUNT(s.id)
+    FROM sets s
+    JOIN exercises_log e ON s.exercise_id = e.id
+    JOIN workouts w ON e.workout_id = w.id
+    WHERE w.user_id=%s
+    GROUP BY e.name
+    """, (message.from_user.id,))
+
+    rows = cursor.fetchall()
+
+    if not rows:
+        await message.answer("❌ Немає даних")
+        return
+
+    text = "📈 Аналіз:\n\n"
+
+    for name, max_w, avg_w, count in rows:
+        text += (
+            f"{name}\n"
+            f"🏆 Макс: {round(max_w,1)} кг\n"
+            f"📊 Середня: {round(avg_w,1)} кг\n"
+            f"🔁 Підходів: {count}\n\n"
+        )
+
+    await message.answer(text)
+
+# =====================
 # РАЦІОН
 # =====================
 @dp.message(lambda m: m.text == "🥗 Раціон")
 async def diet(message: types.Message):
     await message.answer("Введи: 70 маса або 70 сушка")
+
+@dp.message(lambda m: len(m.text.split()) == 2)
+async def calc_diet(message: types.Message):
+    try:
+        parts = message.text.lower().split()
+        weight = float(parts[0])
+        mode = parts[1]
+
+        if mode not in ["маса", "сушка"]:
+            return
+
+        calories = weight * 30 + (400 if mode == "маса" else -400)
+        protein = weight * 2
+        fat = weight * 1
+        carbs = (calories - (protein*4 + fat*9)) / 4
+
+        await message.answer(
+            f"🔥 Калорії: {int(calories)}\n"
+            f"🥩 Білки: {int(protein)} г\n"
+            f"🥑 Жири: {int(fat)} г\n"
+            f"🍚 Вуглеводи: {int(carbs)} г"
+        )
+    except:
+        await message.answer("❌ Формат: 70 маса")
 
 # =====================
 # ЗАПУСК
