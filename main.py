@@ -14,12 +14,10 @@ from aiogram.fsm.storage.memory import MemoryStorage
 # =====================
 # ENV
 # =====================
-TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = "8716094605:AAFdtjf9xnlkniV1Cx5ikgFO6OCFevZ1nck"
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-if not TOKEN:
-    print("❌ BOT_TOKEN НЕ ЗНАЙДЕНО!")
-    exit()
+
 
 if not DATABASE_URL:
     print("❌ DATABASE_URL НЕ ЗНАЙДЕНО!")
