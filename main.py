@@ -12,9 +12,18 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # =====================
-# ENV
+# TOKEN
 # =====================
 TOKEN = "8716094605:AAFdtjf9xnlkniV1Cx5ikgFO6OCFevZ1nck"
+
+bot = Bot(token=TOKEN)
+dp = Dispatcher(storage=MemoryStorage())
+
+print("✅ БОТ СТАРТУЄ")
+
+# =====================
+# DB (якщо є)
+# =====================
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if DATABASE_URL:
@@ -24,53 +33,10 @@ if DATABASE_URL:
 else:
     conn = None
     cursor = None
-    print("⚠️ БЕЗ БАЗИ ДАНИХ")
-
-
+    print("⚠️ БЕЗ БАЗИ")
 
 # =====================
-# BOT
-# =====================
-bot = Bot(token=TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
-
-# =====================
-# DB
-# =====================
-conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-cursor = conn.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS workouts (
-    id SERIAL PRIMARY KEY,
-    user_id BIGINT,
-    date TEXT
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS exercises_log (
-    id SERIAL PRIMARY KEY,
-    workout_id INTEGER,
-    name TEXT,
-    category TEXT
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS sets (
-    id SERIAL PRIMARY KEY,
-    exercise_id INTEGER,
-    weight REAL,
-    reps INTEGER,
-    created_at TIMESTAMP
-)
-""")
-
-conn.commit()
-
-# =====================
-# MENU
+# МЕНЮ
 # =====================
 menu = ReplyKeyboardMarkup(
     keyboard=[
@@ -134,10 +100,14 @@ async def start(message: types.Message):
     await message.answer("Привіт 💪", reply_markup=menu)
 
 # =====================
-# СТАРТ ТРЕНУВАННЯ
+# СТАРТ
 # =====================
 @dp.message(lambda m: m.text == "🏋️ Почати тренування")
 async def start_workout(message: types.Message, state: FSMContext):
+    if not cursor:
+        await message.answer("❌ База не підключена")
+        return
+
     kyiv = pytz.timezone("Europe/Kyiv")
     date = datetime.now(kyiv).strftime("%Y-%m-%d")
 
@@ -149,7 +119,7 @@ async def start_workout(message: types.Message, state: FSMContext):
     conn.commit()
 
     await state.update_data(workout_id=workout_id)
-    await message.answer("Обери групу м'язів:", reply_markup=category_kb)
+    await message.answer("Обери групу:", reply_markup=category_kb)
     await state.set_state(Workout.category)
 
 # =====================
@@ -174,7 +144,7 @@ async def choose_category(message: types.Message, state: FSMContext):
 @dp.message(Workout.exercise)
 async def choose_exercise(message: types.Message, state: FSMContext):
     if message.text == "Інша":
-        await message.answer("Введи свою вправу:")
+        await message.answer("Введи вправу:")
         await state.set_state(Workout.custom)
     else:
         await state.update_data(exercise=message.text)
@@ -202,7 +172,7 @@ async def create_exercise(message, state):
     await state.set_state(Workout.weight)
 
 # =====================
-# SETS
+# СЕТИ
 # =====================
 @dp.message(Workout.weight)
 async def weight(message: types.Message, state: FSMContext):
@@ -228,10 +198,34 @@ async def reps(message: types.Message, state: FSMContext):
     await state.set_state(Workout.next_set)
 
 # =====================
+# ДАЛІ
+# =====================
+@dp.message(Workout.next_set)
+async def next_set(message: types.Message, state: FSMContext):
+    if message.text == "➕ Ще підхід":
+        await message.answer("Введи вагу:")
+        await state.set_state(Workout.weight)
+    else:
+        await message.answer("Додати вправу?", reply_markup=next_exercise_kb)
+        await state.set_state(Workout.next_ex)
+
+# =====================
+# ЗАВЕРШЕННЯ
+# =====================
+@dp.message(Workout.next_ex)
+async def next_ex(message: types.Message, state: FSMContext):
+    if message.text == "➕ Додати вправу":
+        await message.answer("Обери групу:", reply_markup=category_kb)
+        await state.set_state(Workout.category)
+    else:
+        await message.answer("🏁 Завершено", reply_markup=menu)
+        await state.clear()
+
+# =====================
 # ЗАПУСК
 # =====================
 async def main():
     await dp.start_polling(bot)
 
-if __name__ == "__main__":
+if name == "__main__":
     asyncio.run(main())
