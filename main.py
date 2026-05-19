@@ -17,13 +17,16 @@ from aiogram.fsm.storage.memory import MemoryStorage
 TOKEN = "8716094605:AAFdtjf9xnlkniV1Cx5ikgFO6OCFevZ1nck"
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+if DATABASE_URL:
+    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+    cursor = conn.cursor()
+    print("✅ DB OK")
+else:
+    conn = None
+    cursor = None
+    print("⚠️ БЕЗ БАЗИ ДАНИХ")
 
 
-if not DATABASE_URL:
-    print("❌ DATABASE_URL НЕ ЗНАЙДЕНО!")
-    exit()
-
-print("✅ ENV OK")
 
 # =====================
 # BOT
