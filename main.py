@@ -1,6 +1,6 @@
 import asyncio
 import os
-import psycopg2
+import psycopg2  # Переконайся, що psycopg2-binary є в requirements.txt
 from datetime import datetime
 import pytz
 
@@ -11,35 +11,37 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
-# =====================
-# TOKEN
-# =====================
-TOKEN = "8716094605:AAFdtjf9xnlkniV1Cx5ikgFO6OCFevZ1nck"
+print("🔥 НОВА ВЕРСІЯ КОДУ ЗАПУСТИЛАСЯ")
 
+# =====================
+# ЗЧИТУВАННЯ ТОКЕНА
+# =====================
+TOKEN = os.getenv("8716094605:AAFdtjf9xnlkniV1Cx5ikgFO6OCFevZ1nck") 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-print("🔥 НОВА ВЕРСІЯ КОДУ")
 # =====================
-# DB (якщо є)
+# ПІДКЛЮЧЕННЯ БАЗИ ДАНИХ
 # =====================
-DATABASE_URL = os.getenv("DATABASE_URL")
+# Пробуємо зчитувати всі можливі варіанти, які Railway дає для Postgres
+DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("DATABASE_PRIVATE_URL") or os.getenv("POSTGRES_URL")
 
-print("DATABASE_URL =", DATABASE_URL)
+print(f"🔎 ПОШУК БАЗИ... Знайдено URL: {DATABASE_URL}")
 
 if DATABASE_URL:
     try:
+        # Костиль для psycopg2: міняємо postgres:// на postgresql://
+        if DATABASE_URL.startswith("postgres://"):
+            DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+        
+        print("🔄 Намагаюся підключитися до PostgreSQL...")
         conn = psycopg2.connect(DATABASE_URL, sslmode="require")
         cursor = conn.cursor()
-        print("✅ DB OK")
+        print("✅ БАЗУ ДАНИХ УСПІШНО ПІДКЛЮЧЕНО (Postgres)!")
     except Exception as e:
-        print("❌ DB ERROR:", e)
-        conn = None
-        cursor = None
+        print("❌ ПОМИЛКА ПІДКЛЮЧЕННЯ ДО БД:", e)
 else:
-    conn = None
-    cursor = None
-    print("⚠️ БЕЗ БАЗИ")
+    print("⚠️ КРИТИЧНА ПОМИЛКА: Railway не передав жодної змінної для бази даних!")
 
 # =====================
 # МЕНЮ
