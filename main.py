@@ -52,8 +52,7 @@ else:
         # АВТОМАТИЧНЕ СТВОРЕННЯ ВСІХ ТАБЛИЦЬ
         # ==========================================
         
-        # 1. Таблиця користувачів
-        cursor.execute("""
+       cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id BIGINT PRIMARY KEY,
             username TEXT,
@@ -61,7 +60,6 @@ else:
         );
         """)
         
-        # 2. Таблиця тренувань (вправи, вага, повторення)
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS workouts (
             id SERIAL PRIMARY KEY,
@@ -73,7 +71,6 @@ else:
         );
         """)
         
-        # 3. Таблиця для графіку (розкладу) тренувань
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS schedule (
             id SERIAL PRIMARY KEY,
