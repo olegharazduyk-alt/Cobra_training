@@ -23,17 +23,19 @@ TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TOKEN") or "8716094605:AAFdtjf9xnlk
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
+
 # =====================
 # ПІДКЛЮЧЕННЯ БАЗИ ДАНИХ
 # =====================
-# Пробуємо зчитувати всі можливі варіанти, які Railway дає для Postgres
-DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("DATABASE_PRIVATE_URL") or os.getenv("POSTGRES_URL")
+# Якщо сервер видає None, ми підставляємо реальне посилання текстом
+DATABASE_URL = os.getenv("DATABASE_URL") or "
+postgresql://postgres:ATzUmvoQbSJivDFWJRvrKmaFoKmlTWEY@postgres.railway.internal:5432/railway"
 
 print(f"🔎 ПОШУК БАЗИ... Знайдено URL: {DATABASE_URL}")
 
 if DATABASE_URL:
     try:
-        # Костиль для psycopg2: міняємо postgres:// на postgresql://
+        # Про всяк випадок перевіряємо префікс
         if DATABASE_URL.startswith("postgres://"):
             DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
         
@@ -43,8 +45,10 @@ if DATABASE_URL:
         print("✅ БАЗУ ДАНИХ УСПІШНО ПІДКЛЮЧЕНО (Postgres)!")
     except Exception as e:
         print("❌ ПОМИЛКА ПІДКЛЮЧЕННЯ ДО БД:", e)
+        cursor = None
 else:
-    print("⚠️ КРИТИЧНА ПОМИЛКА: Railway не передав жодної змінної для бази даних!")
+    print("⚠️ КРИТИЧНА ПОМИЛКА: Базу не знайдено!")
+    cursor = None
 
 # =====================
 # МЕНЮ
