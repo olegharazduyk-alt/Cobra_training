@@ -65,7 +65,7 @@ if DATABASE_URL:
         );
         """)
         
-        # 3. Таблиця логів вправ
+        # 3. Таблиця логів вправ (потрібна для create_exercise)
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS exercises_log (
             id SERIAL PRIMARY KEY,
@@ -75,7 +75,7 @@ if DATABASE_URL:
         );
         """)
         
-        # 4. Таблиця підходів
+        # 4. Таблиця підходів (потрібна для reps)
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS sets (
             id SERIAL PRIMARY KEY,
@@ -170,6 +170,7 @@ class Workout(StatesGroup):
 # =====================
 @dp.message(Command("start"))
 async def start(message: types.Message):
+    # Автоматично додаємо користувача в базу при старті, якщо його там немає
     if cursor:
         try:
             cursor.execute(
@@ -222,3 +223,101 @@ async def choose_category(message: types.Message, state: FSMContext):
     await state.set_state(Workout.exercise)
 
 # =====================
+# ВПРАВА
+# =====================
+@dp.message(Workout.exercise)
+async def choose_exercise(message: types.Message, state: FSMContext):
+    if message.text == "Інша":
+        await message.answer("Введи вправу:")
+        await state.set_state(Workout.custom)
+    else:
+        await state.update_data(exercise=message.text)
+        await create_exercise(message, state)
+
+@dp.message(Workout.custom)
+async def custom_ex(message: types.Message, state: FSMContext):
+    await state.update_data(exercise=message.text)
+    await create_exercise(message, state)
+
+async def create_exercise(message, state):
+    data = await state.get_data()
+
+    cursor.execute("""
+    INSERT INTO exercises_log (workout_id, name, category)
+    VALUES (%s, %s, %s) RETURNING id
+    """, (data["workout_id"], data["exercise"], data["category"]))
+
+    ex_id = cursor.fetchone()[0]
+    conn.commit()
+
+    await state.update_data(exercise_id=ex_id)
+
+    await message.answer("Введи вагу:")
+    await state.set_state(Workout.weight)
+
+# =====================
+# СЕТИ
+# =====================
+@dp.message(Workout.weight)
+async def weight(message: types.Message, state: FSMContext):
+    try:
+        weight_val = float(message.text.replace(",", "."))
+        await state.update_data(weight=weight_val)
+        await message.answer("Введи повторення:")
+        await state.set_state(Workout.reps)
+    except ValueError:
+        await message.answer("Будь ласка, введи коректне число для ваги (наприклад: 60 або 12.5):")
+
+@dp.message(Workout.reps)
+async def reps(message: types.Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("Будь ласка, введи ціле число для кількості повторень:")
+        return
+
+    data = await state.get_data()
+
+    kyiv = pytz.timezone("Europe/Kyiv")
+    now = datetime.now(kyiv)
+
+    cursor.execute("""
+    INSERT INTO sets (exercise_id, weight, reps, created_at)
+    VALUES (%s, %s, %s, %s)
+    """, (data["exercise_id"], data["weight"], int(message.text), now))
+    conn.commit()
+
+    await message.answer("Збережено ✅")
+    await message.answer("Ще підхід?", reply_markup=sets_kb)
+    await state.set_state(Workout.next_set)
+
+# =====================
+# ДАЛІ
+# =====================
+@dp.message(Workout.next_set)
+async def next_set(message: types.Message, state: FSMContext):
+    if message.text == "➕ Ще підхід":
+        await message.answer("Введи вагу:")
+        await state.set_state(Workout.weight)
+    else:
+        await message.answer("Додати вправу?", reply_markup=next_exercise_kb)
+        await state.set_state(Workout.next_ex)
+
+# =====================
+# ЗАВЕРШЕННЯ
+# =====================
+@dp.message(Workout.next_ex)
+async def next_ex(message: types.Message, state: FSMContext):
+    if message.text == "➕ Додати вправу":
+        await message.answer("Обери групу:", reply_markup=category_kb)
+        await state.set_state(Workout.category)
+    else:
+        await message.answer("🏁 Завершено", reply_markup=menu)
+        await state.clear()
+
+# =====================
+# ЗАПУСК
+# =====================
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
