@@ -27,15 +27,14 @@ dp = Dispatcher(storage=MemoryStorage())
 # =====================
 # ПІДКЛЮЧЕННЯ БАЗИ ДАНИХ
 # =====================
-# Якщо сервер видає None, ми підставляємо реальне посилання текстом
-DATABASE_URL = os.getenv("DATABASE_URL") or "
-postgresql://postgres:ATzUmvoQbSJivDFWJRvrKmaFoKmlTWEY@postgres.railway.internal:5432/railway"
+# Якщо сервер видає None, ми беремо посилання прямо з тексту коду
+DATABASE_URL = os.getenv("DATABASE_URL") or "postgresql://postgres:ATzUmvoQbSJivDFWJRvrKmaFoKmlTWEY@postgres.railway.internal:5432/railway"
 
 print(f"🔎 ПОШУК БАЗИ... Знайдено URL: {DATABASE_URL}")
 
 if DATABASE_URL:
     try:
-        # Про всяк випадок перевіряємо префікс
+        # Важливо для psycopg2: міняємо postgres:// на postgresql://
         if DATABASE_URL.startswith("postgres://"):
             DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
         
@@ -49,7 +48,6 @@ if DATABASE_URL:
 else:
     print("⚠️ КРИТИЧНА ПОМИЛКА: Базу не знайдено!")
     cursor = None
-
 # =====================
 # МЕНЮ
 # =====================
