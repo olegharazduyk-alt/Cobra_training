@@ -26,10 +26,17 @@ print("✅ БОТ СТАРТУЄ")
 # =====================
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+print("DATABASE_URL =", DATABASE_URL)
+
 if DATABASE_URL:
-    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-    cursor = conn.cursor()
-    print("✅ DB OK")
+    try:
+        conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+        cursor = conn.cursor()
+        print("✅ DB OK")
+    except Exception as e:
+        print("❌ DB ERROR:", e)
+        conn = None
+        cursor = None
 else:
     conn = None
     cursor = None
