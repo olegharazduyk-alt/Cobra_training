@@ -17,7 +17,6 @@ print("🔥 НОВА ВЕРСІЯ КОДУ ЗАПУСТИЛАСЯ")
 # =====================
 # TOKEN
 # =====================
-
 TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TOKEN") or "8716094605:AAFdtjf9xnlkniV1Cx5ikgFO6OCFevZ1nck"
 
 bot = Bot(token=TOKEN)
@@ -27,14 +26,15 @@ dp = Dispatcher(storage=MemoryStorage())
 # =====================
 # ПІДКЛЮЧЕННЯ БАЗИ ДАНИХ
 # =====================
-# Якщо сервер видає None, ми беремо посилання прямо з тексту коду
 DATABASE_URL = os.getenv("DATABASE_URL") or "postgresql://postgres:ATzUmvoQbSJivDFWJRvrKmaFoKmlTWEY@postgres.railway.internal:5432/railway"
 
 print(f"🔎 ПОШУК БАЗИ... Знайдено URL: {DATABASE_URL}")
 
+conn = None
+cursor = None
+
 if DATABASE_URL:
     try:
-        # Важливо для psycopg2: міняємо postgres:// на postgresql://
         if DATABASE_URL.startswith("postgres://"):
             DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
         
@@ -42,17 +42,13 @@ if DATABASE_URL:
         conn = psycopg2.connect(DATABASE_URL, sslmode="require")
         cursor = conn.cursor()
         print("✅ БАЗУ ДАНИХ УСПІШНО ПІДКЛЮЧЕНО (Postgres)!")
-    except Exception as e:
-        print("❌ ПОМИЛКА ПІДКЛЮЧЕННЯ ДО БД:", e)
-        cursor = None
-else:
-    print("⚠️ КРИТИЧНА ПОМИЛКА: Базу не знайдено!")
-    cursor = None
-    # ==========================================
+        
+        # ==========================================
         # АВТОМАТИЧНЕ СТВОРЕННЯ ВСІХ ТАБЛИЦЬ
         # ==========================================
         
-       cursor.execute("""
+        # 1. Таблиця користувачів
+        cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id BIGINT PRIMARY KEY,
             username TEXT,
@@ -60,17 +56,37 @@ else:
         );
         """)
         
+        # 2. Таблиця тренувань
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS workouts (
             id SERIAL PRIMARY KEY,
             user_id BIGINT,
-            exercise_name TEXT,
-            weight REAL,
-            reps INTEGER,
-            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            date TEXT
         );
         """)
         
+        # 3. Таблиця логів вправ (потрібна для create_exercise)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS exercises_log (
+            id SERIAL PRIMARY KEY,
+            workout_id INTEGER,
+            name TEXT,
+            category TEXT
+        );
+        """)
+        
+        # 4. Таблиця підходів (потрібна для reps)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sets (
+            id SERIAL PRIMARY KEY,
+            exercise_id INTEGER,
+            weight REAL,
+            reps INTEGER,
+            created_at TIMESTAMP
+        );
+        """)
+        
+        # 5. Таблиця для графіку тренувань
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS schedule (
             id SERIAL PRIMARY KEY,
@@ -90,6 +106,8 @@ else:
 else:
     print("⚠️ КРИТИЧНА ПОМИЛКА: Базу не знайдено!")
     cursor = None
+
+
 # =====================
 # МЕНЮ
 # =====================
@@ -152,10 +170,21 @@ class Workout(StatesGroup):
 # =====================
 @dp.message(Command("start"))
 async def start(message: types.Message):
+    # Автоматично додаємо користувача в базу при старті, якщо його там немає
+    if cursor:
+        try:
+            cursor.execute(
+                "INSERT INTO users (user_id, username) VALUES (%s, %s) ON CONFLICT (user_id) DO NOTHING",
+                (message.from_user.id, message.from_user.username)
+            )
+            conn.commit()
+        except Exception as e:
+            print(f"Помилка додавання користувача: {e}")
+            
     await message.answer("Привіт 💪", reply_markup=menu)
 
 # =====================
-# СТАРТ
+# СТАРТ ТРЕНУВАННЯ
 # =====================
 @dp.message(lambda m: m.text == "🏋️ Почати тренування")
 async def start_workout(message: types.Message, state: FSMContext):
@@ -231,12 +260,20 @@ async def create_exercise(message, state):
 # =====================
 @dp.message(Workout.weight)
 async def weight(message: types.Message, state: FSMContext):
-    await state.update_data(weight=float(message.text))
-    await message.answer("Введи повторення:")
-    await state.set_state(Workout.reps)
+    try:
+        weight_val = float(message.text.replace(",", "."))
+        await state.update_data(weight=weight_val)
+        await message.answer("Введи повторення:")
+        await state.set_state(Workout.reps)
+    except ValueError:
+        await message.answer("Будь ласка, введи коректне число для ваги (наприклад: 60 або 12.5):")
 
 @dp.message(Workout.reps)
 async def reps(message: types.Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("Будь ласка, введи ціле число для кількості повторень:")
+        return
+
     data = await state.get_data()
 
     kyiv = pytz.timezone("Europe/Kyiv")
