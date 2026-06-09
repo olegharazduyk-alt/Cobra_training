@@ -13,10 +13,13 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 print("🔥 НОВА ВЕРСІЯ КОДУ ЗАПУСТИЛАСЯ")
 
+
 # =====================
-# ЗЧИТУВАННЯ ТОКЕНА
+# TOKEN
 # =====================
-TOKEN = os.getenv("8716094605:AAFdtjf9xnlkniV1Cx5ikgFO6OCFevZ1nck") 
+
+TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TOKEN") or "8716094605:AAFdtjf9xnlkniV1Cx5ikgFO6OCFevZ1nck"
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
