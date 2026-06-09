@@ -19,8 +19,7 @@ TOKEN = "8716094605:AAFdtjf9xnlkniV1Cx5ikgFO6OCFevZ1nck"
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-print("✅ БОТ СТАРТУЄ")
-
+print("🔥 НОВА ВЕРСІЯ КОДУ")
 # =====================
 # DB (якщо є)
 # =====================
