@@ -48,6 +48,51 @@ if DATABASE_URL:
 else:
     print("⚠️ КРИТИЧНА ПОМИЛКА: Базу не знайдено!")
     cursor = None
+    # ==========================================
+        # АВТОМАТИЧНЕ СТВОРЕННЯ ВСІХ ТАБЛИЦЬ
+        # ==========================================
+        
+        # 1. Таблиця користувачів
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id BIGINT PRIMARY KEY,
+            username TEXT,
+            registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+        
+        # 2. Таблиця тренувань (вправи, вага, повторення)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS workouts (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
+            exercise_name TEXT,
+            weight REAL,
+            reps INTEGER,
+            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+        
+        # 3. Таблиця для графіку (розкладу) тренувань
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS schedule (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
+            day_of_week TEXT,
+            workout_type TEXT,
+            workout_time TEXT
+        );
+        """)
+        
+        conn.commit()
+        print("📊 УСІ ТАБЛИЦІ УСПІШНО ПЕРЕВІРЕНО ТА СТВОРЕНО В POSTGRES!")
+
+    except Exception as e:
+        print("❌ ПОМИЛКА ПІДКЛЮЧЕННЯ АБО СТВОРЕННЯ ТАБЛИЦЬ:", e)
+        cursor = None
+else:
+    print("⚠️ КРИТИЧНА ПОМИЛКА: Базу не знайдено!")
+    cursor = None
 # =====================
 # МЕНЮ
 # =====================
